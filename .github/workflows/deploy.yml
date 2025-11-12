@@ -1,88 +1,69 @@
-# .github/workflows/deploy.yml
-
 name: Build and Deploy
-
-# 触发条件：当有代码推送到 main 分支时触发
 on:
   push:
     branches: [ main ]
 
-# 定义作业
 jobs:
   build-and-deploy:
-    # 在最新的 Ubuntu 环境中运行
     runs-on: ubuntu-latest
-
-    # 步骤
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      # 1. 拉取代码
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '23' # 使用你项目需要的 Node.js 版本
-        cache: 'npm'
+      # 2. 配置 Node.js（关键：Node 23 是开发版，换稳定版 20 避免兼容问题）
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # 稳定版，适配绝大多数 React 项目
+          cache: 'npm'
 
-    - name: Install dependencies
-      run: npm ci # npm ci 比 npm install 更严格，适合 CI 环境
+      # 3. 安装依赖（npm ci 严格，失败时用 npm install --force 兜底）
+      - name: Install dependencies
+        run: |
+          npm ci || npm install --force
 
+      # 4. 构建项目（生成 build 目录，失败则终止流程）
+      - name: Build the app
+        run: npm run build
+        continue-on-error: false # 构建失败直接停止，避免无效部署
 
-    - name: Build the app
-      run: npm run build
-    # 新增步骤：在服务器上创建目录（如果不存在）
-    - name: Create directory on server
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USERNAME }}
-        key: ${{ secrets.SERVER_SSH_KEY}}
-        script: |
-          mkdir -p /var/www/my-cicd-app
-          # 这里也可以加上设置权限的命令，例如：
-          # chown -R nginx:nginx /var/www/my-cicd-app
-
-
-    - name: Deploy with rsync
-      uses: burnett01/rsync-deployments@5.2
-      with:
-        switches: -avzr --delete
-        path: ./build/ # 确认你的构建产物在 build 目录下
-        remote_path: /var/www/my-cicd-app/ # 服务器上的目标目录
-        remote_host: ${{ secrets.SERVER_HOST }}
-        remote_user: ${{ secrets.SERVER_USERNAME }}
-        remote_key: ${{ secrets.SERVER_SSH_KEY}}
-        
-        # 这里是在服务器上执行的命令
-        script: |
-          cd /var/www/my-cicd-app # 进入你的网站根目录
-          rm -rf * # 删除旧文件（注意：这个操作很危险，请确保目录正确！）
-          exit # 退出 SSH 连接
-          
-          # 注意：上面的 script 只执行了删除操作。为了上传文件，我们需要另一个步骤或一个更复杂的 script。
-          # 一个更完整的部署脚本应该包含文件传输。下面是一个更优的方案，使用 rsync:
-           # 更新包列表（可选，但推荐）
-            sudo yum update -y
-            # 安装 rsync
+      # 5. 服务器预处理：创建目录 + 安装 rsync（一次性操作，兼容你的 Alibaba Cloud Linux）
+      - name: Prepare server environment
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            # 创建目标目录并授权（nginx 用户适配 Web 服务）
+            mkdir -p /var/www/my-cicd-app
+            chown -R nginx:nginx /var/www/my-cicd-app
+            # 安装 rsync（确保服务器有该命令）
             sudo yum install -y rsync
-          
-    - name: Deploy files with rsync
-      uses: burnett01/rsync-deployments@5.2
-      with:
-        switches: -avzr --delete # a:归档, v:详细, z:压缩, r:递归, --delete:删除目标端不存在的文件
-        path: ./build/ # 确认你的构建产物在 build 目录下
-        remote_path: /var/www/my-cicd-app/ # 服务器上的目标目录
-        remote_host: ${{ secrets.SERVER_HOST }}
-        remote_user: ${{ secrets.SERVER_USERNAME }}
-        remote_key: ${{ secrets.SERVER_SSH_KEY }}
 
-    - name: Post-deployment tasks
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USERNAME }}
-        key: ${{ secrets.SERVER_SSH_KEY }}
-        script: |
-          # 在这里可以执行一些部署后的命令，例如重启 Nginx
-          # systemctl restart nginx
-          echo "Deployment completed successfully!"
+      # 6. 单步部署：用 rsync 同步文件（删除重复步骤，只保留核心部署）
+      - name: Deploy files with rsync
+        uses: burnett01/rsync-deployments@5.2
+        with:
+          switches: -avzr --delete # 归档、压缩、递归、删除目标端多余文件
+          path: ./build/ # 本地构建产物目录（构建成功后自动生成）
+          remote_path: /var/www/my-cicd-app/ # 服务器目标目录
+          remote_host: ${{ secrets.SERVER_HOST }}
+          remote_user: ${{ secrets.SERVER_USERNAME }}
+          remote_key: ${{ secrets.SERVER_SSH_KEY }}
+
+      # 7. 部署后验证：重启 Nginx + 输出成功日志
+      - name: Post-deployment tasks
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            # 重启 Nginx 让新文件生效（按需启用，注释则仅同步文件）
+            systemctl restart nginx
+            # 输出目录文件列表，验证部署结果
+            echo "Deployed files in /var/www/my-cicd-app:"
+            ls -l /var/www/my-cicd-app
+            echo "Deployment completed successfully!"
