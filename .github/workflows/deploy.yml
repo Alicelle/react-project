@@ -1,0 +1,74 @@
+# .github/workflows/deploy.yml
+
+name: Build and Deploy
+
+# 触发条件：当有代码推送到 main 分支时触发
+on:
+  push:
+    branches: [ main ]
+
+# 定义作业
+jobs:
+  build-and-deploy:
+    # 在最新的 Ubuntu 环境中运行
+    runs-on: ubuntu-latest
+
+    # 步骤
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18' # 使用你项目需要的 Node.js 版本
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci # npm ci 比 npm install 更严格，适合 CI 环境
+
+    - name: Run linter
+      run: npm run lint
+
+    - name: Run tests
+      run: npm test -- --watchAll=false # 非交互式运行测试
+
+    - name: Build the app
+      run: npm run build
+
+    - name: Deploy to Server
+      uses: appleboy/ssh-action@master # 使用一个现成的 SSH Action
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USERNAME }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        
+        # 这里是在服务器上执行的命令
+        script: |
+          cd /var/www/my-cicd-app # 进入你的网站根目录
+          rm -rf * # 删除旧文件（注意：这个操作很危险，请确保目录正确！）
+          exit # 退出 SSH 连接
+          
+          # 注意：上面的 script 只执行了删除操作。为了上传文件，我们需要另一个步骤或一个更复杂的 script。
+          # 一个更完整的部署脚本应该包含文件传输。下面是一个更优的方案，使用 rsync:
+          
+    - name: Deploy files with rsync
+      uses: burnett01/rsync-deployments@5.2
+      with:
+        switches: -avzr --delete # a:归档, v:详细, z:压缩, r:递归, --delete:删除目标端不存在的文件
+        path: build/ # 本地要同步的目录
+        remote_path: /var/www/my-cicd-app/ # 服务器上的目标目录
+        remote_host: ${{ secrets.SERVER_HOST }}
+        remote_user: ${{ secrets.SERVER_USERNAME }}
+        remote_key: ${{ secrets.SERVER_SSH_KEY }}
+
+    - name: Post-deployment tasks
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USERNAME }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        script: |
+          # 在这里可以执行一些部署后的命令，例如重启 Nginx
+          # systemctl restart nginx
+          echo "Deployment completed successfully!"
