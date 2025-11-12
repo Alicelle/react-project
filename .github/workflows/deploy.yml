@@ -54,16 +54,53 @@ jobs:
           remote_key: ${{ secrets.SERVER_SSH_KEY }}
 
       # 7. 部署后验证：重启 Nginx + 输出成功日志
-      - name: Post-deployment tasks
+      - name: Post-deployment (auto install OpenResty + config)
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USERNAME }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            # 重启 Nginx 让新文件生效（按需启用，注释则仅同步文件）
-            systemctl restart nginx
-            # 输出目录文件列表，验证部署结果
-            echo "Deployed files in /var/www/my-cicd-app:"
+            # 1. 安装 OpenResty（Alibaba Cloud Linux 源直接可用，无需额外配置）
+            sudo yum install -y openresty
+            # 2. 启动服务并设置开机自启（避免服务器重启后失效）
+            sudo systemctl start openresty
+            sudo systemctl enable openresty
+            # 3. 覆盖 OpenResty 配置文件（指向部署目录，解决 React 路由问题）
+            sudo cat > /etc/openresty/nginx.conf << EOF
+            worker_processes  1;
+            events {
+                worker_connections  1024;
+            }
+            http {
+                include       mime.types;
+                default_type  application/octet-stream;
+                sendfile        on;
+                keepalive_timeout  65;
+                server {
+                    listen       80; # 监听 80 端口（HTTP 默认端口）
+                    server_name  ${{ secrets.SERVER_HOST }}; # 服务器公网 IP
+                    root /var/www/my-cicd-app; # 前端文件部署目录
+                    index index.html; # 默认首页
+                    # 解决 React Router 刷新 404 问题
+                    location / {
+                        try_files $uri $uri/ /index.html;
+                    }
+                }
+            }
+            EOF
+            # 4. 检查配置是否正确，不正确则终止流程
+            if ! sudo nginx -t; then
+                echo "Nginx config error!"
+                exit 1
+            fi
+            # 5. 重启 OpenResty 让配置生效
+            sudo systemctl restart openresty
+            # 6. 开放 80 端口（公网可访问）
+            sudo firewall-cmd --permanent --add-port=80/tcp
+            sudo firewall-cmd --reload
+            # 7. 输出验证信息
+            echo "✅ OpenResty installed and configured!"
+            echo "✅ Deployed files in /var/www/my-cicd-app:"
             ls -l /var/www/my-cicd-app
-            echo "Deployment completed successfully!"
+            echo "🌐 Visit your website: http://${{ secrets.SERVER_HOST }}"
