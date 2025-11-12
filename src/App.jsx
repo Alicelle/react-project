@@ -6,8 +6,7 @@ import CartContextProvider from './store/shopping-cart-context.jsx'
 function App() {
   return (
     <CartContextProvider>
-      <Header
-      />
+      <Header/>
       <Shop>
       </Shop>
     </CartContextProvider>
