@@ -46,6 +46,10 @@ jobs:
           
           # 注意：上面的 script 只执行了删除操作。为了上传文件，我们需要另一个步骤或一个更复杂的 script。
           # 一个更完整的部署脚本应该包含文件传输。下面是一个更优的方案，使用 rsync:
+           # 更新包列表（可选，但推荐）
+            sudo yum update -y
+            # 安装 rsync
+            sudo yum install -y rsync
           
     - name: Deploy files with rsync
       uses: burnett01/rsync-deployments@5.2
