@@ -34,24 +34,24 @@ jobs:
     - name: Create directory on server
       uses: appleboy/ssh-action@master
       with:
-        host: ${{ secrets.SSH_HOST }}
-        username: ${{ secrets.SSH_USERNAME }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USERNAME }}
+        key: ${{ secrets.SERVER_SSH_KEY}}
         script: |
           mkdir -p /var/www/my-cicd-app
           # 这里也可以加上设置权限的命令，例如：
           # chown -R nginx:nginx /var/www/my-cicd-app
 
-          
+
     - name: Deploy with rsync
       uses: burnett01/rsync-deployments@5.2
       with:
         switches: -avzr --delete
         path: ./build/ # 确认你的构建产物在 build 目录下
         remote_path: /var/www/my-cicd-app/ # 服务器上的目标目录
-        remote_host: ${{ secrets.SSH_HOST }}
-        remote_user: ${{ secrets.SSH_USERNAME }}
-        remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+        remote_host: ${{ secrets.SERVER_HOST }}
+        remote_user: ${{ secrets.SERVER_USERNAME }}
+        remote_key: ${{ secrets.SERVER_SSH_KEY}}
         
         # 这里是在服务器上执行的命令
         script: |
