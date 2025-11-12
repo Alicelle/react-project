@@ -47,7 +47,7 @@ jobs:
         uses: burnett01/rsync-deployments@5.2
         with:
           switches: -avzr --delete # 归档、压缩、递归、删除目标端多余文件
-          path: ./build/ # 本地构建产物目录（构建成功后自动生成）
+          path: ./dist/ # 本地构建产物目录（构建成功后自动生成）
           remote_path: /var/www/my-cicd-app/ # 服务器目标目录
           remote_host: ${{ secrets.SERVER_HOST }}
           remote_user: ${{ secrets.SERVER_USERNAME }}
